@@ -1,6 +1,8 @@
 
 from pathlib import Path
 from datetime import datetime
+import sys
+sys.path.append("/opt/hpe/odelia_breast_mri/")
 
 import torch 
 from pytorch_lightning.trainer import Trainer
@@ -8,12 +10,11 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data.dataset import Subset
 
-from odelia.data.datasets import DUKE_Dataset3D
+from odelia.data.datasets import DUKE_Dataset3D_zurich
 from odelia.data.datamodules import DataModule
 from odelia.models import ResNet, VisionTransformer, EfficientNet, EfficientNet3D, EfficientNet3Db7, DenseNet, UNet3D, ResNet2D
 import os
 import argparse
-
 torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
     # Add command line arguments
@@ -22,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument('--device_num', default=None, help='')
     parser.add_argument('--network', default=None, help='')
     args = parser.parse_args()
-    args.network = 'DenseNet121'
+    args.network = 'ResNet101'
     #os.environ["CUDA_VISIBLE_DEVICES"] = args.device_num  # Set to the desired GPU index
 
     #------------ Settings/Defaults ----------------
@@ -36,9 +37,9 @@ if __name__ == "__main__":
 
 
     # ------------ Load Data ----------------
-    ds = DUKE_Dataset3D(
+    ds = DUKE_Dataset3D_zurich(
         flip=True, 
-        path_root = '/mnt/sda1/swarm-learning/radiology-dataset/divided_odelia_dataset/3d-cnn/train')
+        path_root = '/opt/hpe/odelia_breast_mri/dataset/Data_004_unilateral_256x256x32')
 
     # WARNING: Very simple split approach
     train_size = int(0.8 * len(ds))
@@ -54,6 +55,7 @@ if __name__ == "__main__":
         # num_workers=0,
         pin_memory=True,
     )
+    print(args.network)
     if args.network == 'ResNet18':
         layers = [2, 2, 2, 2]
     elif args.network == 'ResNet34':
