@@ -4,22 +4,18 @@ from odelia.data.datasets import SimpleDataset3D
 
 
 class DUKE_Dataset3D_zurich(SimpleDataset3D):
-    def __init__(self, path_root, item_pointers=None, crawler_glob='*.nii.gz', transform=None, image_resize=None, flip=False, image_crop=None, norm='znorm_clip', to_tensor=True):
+    def __init__(self, path_root, item_pointers=None, crawler_glob='*.nii.gz', transform=None, image_resize=None,
+                 flip=False, image_crop=None, norm='znorm_clip', to_tensor=True):
         if item_pointers is None:
             item_pointers = []
         super().__init__(path_root, item_pointers, crawler_glob, transform, image_resize, flip, image_crop, norm, to_tensor)
-        df = pd.read_csv(self.path_root.parent/'004.csv')#, header=[0, 2])
+        df = pd.read_csv(self.path_root.parent/'merged_004_015.csv')#, header=[0, 2])
         print('self.path_root.parent', self.path_root.parent)
-        #df = df[df[df.columns[38]] == 0] # check if cancer is bilateral=1, unilateral=0 or NC 
+        #df = df[df[df.columns[38]] == 0] # check if cancer is bilateral=1, unilateral=0 or NC
         df = df[[df.columns[0], df.columns[1]]] # Only pick relevant columns: Patient ID, Tumor Side, Bilateral
-        #df.columns = ['PatientID', 'Malign']  # Simplify columns as: Patient ID, Tumor Side
-        #print('Data_____frame')
-        #print(df)
-        #for side in ["left", 'right']:
-            #dfs.append(pd.DataFrame({
-                #'PatientID': df["PatientID"].str.split('_').str[2] + f"_{side}",
-                #'Malign':df[["Location", "Bilateral"]].apply(lambda ds: (ds[0] == side[0].upper()) | (ds[1]==1), axis=1)} ))
-        self.df = df.set_index('PATIENT', drop=True)
+        existing_folders = {folder.name for folder in Path(path_root).iterdir() if folder.is_dir()}
+        self.df = df[df['PATIENT'].isin(existing_folders)]
+        self.df = self.df.set_index('PATIENT', drop=True)
         self.item_pointers = self.df.index[self.df.index.isin(self.item_pointers)].tolist()
         #print('Data_____frame')
         #print(df)
@@ -39,4 +35,9 @@ class DUKE_Dataset3D_zurich(SimpleDataset3D):
         return [path.relative_to(path_root).name for path in Path(path_root).iterdir() if path.is_dir() ]
 
     
-
+    def get_labels(self):
+        # Assuming 'Malign' is a column in self.df after combining datasets
+        # This method should return a list or array of labels corresponding to each item in the dataset
+        return self.df['Malign'].values
+    def __len__(self):
+        return len(self.item_pointers)

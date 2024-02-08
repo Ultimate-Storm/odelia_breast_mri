@@ -1,10 +1,11 @@
-
+import numpy as np
 from pathlib import Path
 from datetime import datetime
 import sys
 sys.path.append("/opt/hpe/odelia_breast_mri/")
-
-import torch 
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
+import torch
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -39,15 +40,36 @@ if __name__ == "__main__":
     # ------------ Load Data ----------------
     ds = DUKE_Dataset3D_zurich(
         flip=True, 
-        path_root = '/opt/hpe/odelia_breast_mri/dataset/Data_004_unilateral_256x256x32')
+        path_root = '/opt/hpe/odelia_breast_mri/dataset/zurich_dataset')
+    labels = ds.get_labels()
 
-    # WARNING: Very simple split approach
-    train_size = int(0.8 * len(ds))
-    val_size = int(0.2 * len(ds))
-    ds_train = Subset(ds, list(range(train_size)))
-    ds_val = Subset(ds, list(range(train_size, train_size+val_size)))
-    print('train_size: ',train_size)
-    print('val_size: ',val_size)
+    # Generate indices and perform stratified split
+    indices = list(range(len(ds)))
+    train_indices, val_indices = train_test_split(indices, test_size=0.2, stratify=labels, random_state=42)
+
+    # Create training and validation subsets
+    ds_train = Subset(ds, train_indices)
+    ds_val = Subset(ds, val_indices)
+
+
+    # Function to print label distribution
+    def print_label_distribution(subset, ds, label_name='Malign'):
+        # Retrieve labels for the subset
+        labels = [ds.df.loc[ds.item_pointers[idx]][label_name] for idx in subset.indices]
+
+        # Count occurrences of each label
+        unique, counts = np.unique(labels, return_counts=True)
+        label_distribution = dict(zip(unique, counts))
+
+        # Print distribution
+        print(f"Label distribution in subset: {label_distribution}")
+
+
+    # Print label distributions
+    print("Training dataset label distribution:")
+    print_label_distribution(ds_train, ds)
+    print("\nValidation dataset label distribution:")
+    print_label_distribution(ds_val, ds)
     dm = DataModule(
         ds_train = ds_train,
         ds_val = ds_val,
@@ -151,7 +173,7 @@ if __name__ == "__main__":
         # limit_train_batches=1,
         # limit_val_batches=0, # 0 = disable validation - Note: Early Stopping no longer available 
         min_epochs=50,
-        max_epochs=100,
+        max_epochs=200,
         num_sanity_val_steps=2,
         logger=TensorBoardLogger(save_dir=path_run_dir)
     )

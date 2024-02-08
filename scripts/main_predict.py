@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append("/opt/hpe/odelia_breast_mri/")
 from pathlib import Path
 import logging
 from tqdm import tqdm
@@ -11,7 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 import pandas as pd 
 
-from odelia.data.datasets import DUKE_Dataset3D
+from odelia.data.datasets import DUKE_Dataset3D_external
 from odelia.data.datamodules import DataModule
 from odelia.models import ResNet, VisionTransformer, EfficientNet, EfficientNet3D, EfficientNet3Db7, DenseNet, UNet3D, ResNet2D
 from odelia.utils.roc_curve import plot_roc_curve, cm2acc, cm2x
@@ -37,7 +39,7 @@ if __name__ == "__main__":
             args.network = 'efficientnet_' + args.network
         print(args.network)
     else:
-        path_run = Path('/home/jeff/PycharmProjects/odelia_breast_mri/2023_04_06_084638_DUKE_ResNet50_swarm_learning')
+        path_run = Path('/opt/hpe/odelia_breast_mri/scripts/runs/2024_02_08_123719')
         args.network = str(path_run).split('_')[-1]
         if len(args.network) == 2:
             args.network = 'efficientnet_' + args.network
@@ -52,15 +54,15 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fontdict = {'fontsize': 10, 'fontweight': 'bold'}
 
-
+    args.network = "ResNet101"
     # ------------ Logging --------------------
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
 #./workspace/automate_scripts/launch_sl/run_swop.sh -w <workspace_name> -s <sentinel_ip_address>  -d <host_index>
     # ------------ Load Data ----------------
-    ds = DUKE_Dataset3D(
+    ds = DUKE_Dataset3D_external(
         flip=False,
-        path_root = '/home/jeff/dataset/duke_3d/test/'
+        path_root = '/opt/hpe/odelia_breast_mri/dataset/external'
     )
 
     # WARNING: Very simple split approach
