@@ -39,7 +39,7 @@ if __name__ == "__main__":
             args.network = 'efficientnet_' + args.network
         print(args.network)
     else:
-        path_run = Path('/opt/hpe/odelia_breast_mri/scripts/runs/2024_02_08_123719')
+        path_run = Path('/opt/hpe/odelia_breast_mri/scripts/runs/2024_02_08_152907')
         args.network = str(path_run).split('_')[-1]
         if len(args.network) == 2:
             args.network = 'efficientnet_' + args.network
