@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data.dataset import Subset
 
-from odelia.data.datasets import DUKE_Dataset3D_zurich
+from odelia.data.datasets import DUKE_Dataset3D_collab
 from odelia.data.datamodules import DataModule
 from odelia.models import ResNet, VisionTransformer, EfficientNet, EfficientNet3D, EfficientNet3Db7, DenseNet, UNet3D, ResNet2D
 import os
@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
 
     # ------------ Load Data ----------------
-    ds = DUKE_Dataset3D_zurich(
+    ds = DUKE_Dataset3D_collab(
         flip=True, 
         path_root = '/opt/hpe/odelia_breast_mri/dataset/zurich_dataset')
     labels = ds.get_labels()

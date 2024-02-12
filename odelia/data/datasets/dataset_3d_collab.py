@@ -3,7 +3,7 @@ import pandas as pd
 from odelia.data.datasets import SimpleDataset3D
 
 
-class DUKE_Dataset3D_zurich(SimpleDataset3D):
+class DUKE_Dataset3D_collab(SimpleDataset3D):
     def __init__(self, path_root, item_pointers=None, crawler_glob='*.nii.gz', transform=None, image_resize=None,
                  flip=False, image_crop=None, norm='znorm_clip', to_tensor=True):
         if item_pointers is None:
@@ -23,7 +23,7 @@ class DUKE_Dataset3D_zurich(SimpleDataset3D):
     def __getitem__(self, index):
         uid = self.item_pointers[index]
         #print(uid)
-        path_item = [self.path_root/uid/name for name in [ 'SUB_4.nii.gz' ]]
+        path_item = [self.path_root/uid/name for name in [ '*sub.nii.gz' ]]
         img = self.load_item(path_item)
         #print(img)
         target = self.df.loc[uid]['Malign']
