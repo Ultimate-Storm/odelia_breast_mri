@@ -13,12 +13,12 @@ dependencies:
   - tqdm
   - openpyxl
   - torchio
-  - pytorch-cuda=11.7
+  - pytorch-cuda
   - pytorch 
-  - torchvision=0.17.0
-  - torchaudio=2.2.0
+  - torchvision
+  - torchaudio
   - monai
-  - pytorch-lightning=1.9.0
+  - pytorch-lightning
   - tensorboard 
   - scikit-learn
   - matplotlib
