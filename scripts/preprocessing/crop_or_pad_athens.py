@@ -18,6 +18,7 @@ def preprocess(path_img):
     # -------- Settings --------------
     print(path_img)
     target_shape = (512, 512, 32)
+    target_spacing = (0.7, 0.7, 3)
 
     # Read image
     img = tio.ScalarImage(path_img)
@@ -25,6 +26,8 @@ def preprocess(path_img):
 
     # Preprocess (eg. Crop/Pad)
     transform = tio.Compose([
+        tio.Resample(target_spacing),
+
         CropOrPad(target_shape, padding_mode='mean'),
         tio.ToCanonical(),
     ])
