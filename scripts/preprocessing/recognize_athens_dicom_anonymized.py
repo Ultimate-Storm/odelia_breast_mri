@@ -9,6 +9,7 @@ def get_sequence_names(directory):
 
     for root, dirs, files in os.walk(directory):
         for file in files:
+            # if no files at all
             if not file.endswith('.DCM'):  # Skip non-DICOM files
                 continue
             try:
@@ -26,7 +27,7 @@ def get_sequence_names(directory):
     return sequence_names, folder_name
 
 if __name__ == "__main__":
-    directory = "/home/jeff/Downloads/OneDrive_1_3-8-2024/ANON_03b27b8125fc4b86b91826d4dc76ffe0"
+    directory = "/home/jeff/Downloads/02000091239418/"
     sequence_names, folder_name = get_sequence_names(directory)
     if sequence_names:
         print("Sequence Names found in DICOM files:")
