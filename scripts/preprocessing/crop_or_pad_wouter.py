@@ -39,11 +39,11 @@ def preprocess(path_img):
     img_right = tio.Crop((256, 0, 0, 0, 0, 0))(img)
 
     # Construct new save path
-    parent_dir_name = path_img.parents[2].name  # Adjust based on your directory structure
-    save_path_right = Path(f"/home/jeff/preprocessed_athens/{parent_dir_name}_right")
+    parent_dir_name = path_img.parents[1].name  # Adjust based on your directory structure
+    save_path_right = Path(f"/home/jeff/preprocessed_re/{path_img.stem.split('.')[0].split('_')[0]}_right")
     save_path_right.mkdir(parents=True, exist_ok=True)
 
-    save_path_left = Path(f"/home/jeff/preprocessed_athens/{parent_dir_name}_left")
+    save_path_left = Path(f"/home/jeff/preprocessed_re/{path_img.stem.split('.')[0].split('_')[0]}_left")
     save_path_left.mkdir(parents=True, exist_ok=True)
 
     # Save
@@ -52,7 +52,7 @@ def preprocess(path_img):
 
 if __name__ == "__main__":
     # Get all the .nii.gz files recursively in the directory
-    path_img = Path('/home/jeff/Athens_data/')
+    path_img = Path('/home/jeff/wouter/')
     nifti_files = list(path_img.rglob('*.nii.gz'))
     print(nifti_files)
 
