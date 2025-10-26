@@ -13,18 +13,17 @@ def process(path_patient):
     dyn0 = sitk.GetArrayFromImage(dyn0_nii)
     dyn1 = sitk.GetArrayFromImage(dyn1_nii)
     sub = dyn1-dyn0
-    sub = sub-sub.min() # Note: negative values causes overflow when using uint 
-    sub = sub.astype(np.uint16)
+    sub = sub.astype(np.int16)
     sub_nii = sitk.GetImageFromArray(sub)
     sub_nii.CopyInformation(dyn0_nii)
-    sitk.WriteImage(sub_nii, str(path_patient/'Sub.nii.gz'))
+    sitk.WriteImage(sub_nii, str(path_patient/'Sub_1.nii.gz'))
 
 
 
 
 
 if __name__ == "__main__":
-    path_root = Path('/home/gustav/Documents/datasets/ODELIA/')
+    path_root = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA')
     for dataset in ['DUKE', ]: # 'CAM', 'MHA', 'RSH', 'RUMC', 'UKA', 'UMCU', 'DUKE'
         path_data = path_root/dataset/'data'
 

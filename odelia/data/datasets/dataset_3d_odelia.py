@@ -10,7 +10,7 @@ from .augmentations.augmentations_3d import ImageOrSubjectToTensor, ZNormalizati
 
 class ODELIA_Dataset3D(data.Dataset):
     PATH_ROOT = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA/')
-    ALL_INSTITUTIONS = ['CAM', 'MHA', 'RSH', 'UKA', 'UMCU']  # exclude 'RUMC' to keep it for testing
+    ALL_INSTITUTIONS = ['CAM', 'MHA', 'RUMC', 'UKA', 'UMCU']  # exclude 'RSH' to keep it for testing
     DATA_DIR = {
         "original": "data",
         "unilateral": "data_unilateral"
@@ -37,7 +37,7 @@ class ODELIA_Dataset3D(data.Dataset):
             fold = 0,
             binary=True, # If True, binary labels otherwise ordinal 
             labels=None, # None = all labels or  list of labels 
-            config="original", # original, unilateral 
+            config="unilateral", # original, unilateral 
             split= None,
             fraction=None,
             transform = None,
@@ -57,6 +57,9 @@ class ODELIA_Dataset3D(data.Dataset):
         self.data_dir = self.DATA_DIR[config]
         self.labels = list(self.class_labels.keys()) if labels is None else labels 
         self.class_labels_num = [len(self.class_labels[l]) for l in self.labels] # For CORN Loss -1 
+
+        if self.binary and len(self.labels) >2:
+            raise ValueError("If binary=True, only two labels can be used.")
         
         if (institutions is None) or (institutions == "ODELIA"):
             institutions = self.ALL_INSTITUTIONS
@@ -73,7 +76,7 @@ class ODELIA_Dataset3D(data.Dataset):
                 tio.Flip((1,0)), # Just for viewing, otherwise upside down
                 CropOrPad((448, 448, 32), random_center=random_rotate) if config == "original" else CropOrPad((224, 224, 32), random_center=random_rotate),
 
-                ZNormalization(per_channel=True, per_slice=False, masking_method=lambda x:(x>x.min()) & (x<x.max()), percentiles=(0.5, 99.5)), 
+                ZNormalization(per_channel=True, per_slice=False, masking_method=lambda x:(x>x.min()) & (x<x.max()) ), 
 
                 tio.OneOf([
                     #tio.Lambda(lambda x: x.moveaxis(1, 2) if torch.rand((1,),)[0]<0.5 else x ) if random_rotate else tio.Lambda(lambda x: x), # WARNING: 1,2 if Subject, 2, 3 if tensor
@@ -135,12 +138,11 @@ class ODELIA_Dataset3D(data.Dataset):
 
         # Use only binary label (Cancer yes/no)
         # NOTE: 0=No Lesion, 1=Benign Lesion, 2=Malignant Lesion
-        # NOTE: Duke already binary: 0=No or benign Lesion, 1=Malignant Lesion
-        if (institution not in ["DUKE", "UKA_all_new"]) and self.binary:
+        if (institution not in ["UKA_all_new"]) and self.binary:
             target = (target == 2).astype(int)
     
         path_folder = self.path_root/institution/self.data_dir/uid
-        img = self.load_img([path_folder/f'{name}.nii.gz' for name in [ 'Pre', 'Sub_1', 'T2']]) 
+        img = self.load_img([path_folder/f'{name}.nii.gz' for name in [ 'Sub_1',]]) # 'Pre', 'Sub_1', 'T2'
         img = self.transform(img)
 
         return {'uid':uid, 'source': img, 'target':target}

@@ -12,7 +12,7 @@ dependencies:
   - pytorch-cuda=12.1  
   - pip:
     - pytorch-lightning=2.4.0
-    - torchio=0.20.1
+    - torchio=0.20.23
     - monai=1.4.0
     - pandas=2.2.3
     - numpy=1.26.4
@@ -27,4 +27,7 @@ dependencies:
     - huggingface_hub=0.29.3
     - datasets=3.4.1
     - coral_pytorch=1.4.0
+    - transformers=4.57.1
+    - x-transformers=2.1.2
+    - accelerate=1.10.1
     - -e .

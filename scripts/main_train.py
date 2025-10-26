@@ -17,14 +17,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--institution', default='ODELIA', type=str)
     parser.add_argument('--model', type=str, default='MST', choices=['ResNet', 'MST']) 
-    parser.add_argument('--task', type=str, default="binary", choices=['binary', 'ordinal']) # binary: malignant lesion yes/no, ordinal: no lesion, benign, malignant
+    parser.add_argument('--task', type=str, default="ordinal", choices=['binary', 'ordinal']) # binary: malignant lesion yes/no, ordinal: no lesion, benign, malignant
     parser.add_argument('--config', type=str, default="unilateral", choices=['original', 'unilateral'])
+    parser.add_argument('--fold', type=int, default=0)
     args = parser.parse_args()
     binary = args.task == 'binary'
+    fold = args.fold
 
     #------------ Settings/Defaults ----------------
     current_time = datetime.now().strftime("%Y_%m_%d_%H%M%S")
-    run_name = f'{args.model}_{args.task}_{args.config}_{current_time}'
+    run_name = f'{args.model}_{args.task}_{args.config}_{current_time}_fold{fold}'
     path_run_dir = Path.cwd() / 'runs' / args.institution / run_name
     path_run_dir.mkdir(parents=True, exist_ok=True)
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
@@ -32,11 +34,11 @@ if __name__ == "__main__":
 
     # ------------ Load Data ----------------
     ds_train = ODELIA_Dataset3D(institutions=args.institution, split='train', binary=binary, config=args.config,
-                                 random_flip=True, random_rotate=True, random_inverse=False, noise=True)
-    ds_val = ODELIA_Dataset3D(institutions=args.institution, split='val', binary=binary, config=args.config)
+                                 random_flip=True, random_rotate=True, random_inverse=False, noise=True, fold=fold)
+    ds_val = ODELIA_Dataset3D(institutions=args.institution, split='val', binary=binary, config=args.config, fold=fold)
     
     samples = len(ds_train) + len(ds_val)
-    batch_size = 1
+    batch_size = 8
     accumulate_grad_batches = 1 
     steps_per_epoch = samples / batch_size / accumulate_grad_batches
 
@@ -74,12 +76,12 @@ if __name__ == "__main__":
 
 
     # Load pretrained model 
-    # model = ResNet.load_from_checkpoint('runs/DUKE/2024_11_14_132823/epoch=41-step=17514.ckpt')
+    # model = MSTRegression.load_from_checkpoint('runs/DUKE/MST_ordinal_unilateral_2025_10_22_202238_fold4/epoch=18-step=1976.ckpt')
 
 
     # -------------- Training Initialization ---------------
-    to_monitor = "val/AUC_ROC"  if binary else "val/MAE"
-    min_max = "max" if binary else "min"
+    to_monitor = "val/AUC_ROC"  # if binary else "val/MAE"
+    min_max = "max" # if binary else "min"
     log_every_n_steps = 50
     logger = WandbLogger(project='ODELIA', group=args.institution, name=run_name, log_model=False)
 

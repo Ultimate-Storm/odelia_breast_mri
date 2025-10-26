@@ -10,6 +10,7 @@ import pandas as pd
 import ast 
 import torch.nn.functional as F
 from sklearn.metrics import confusion_matrix, accuracy_score, cohen_kappa_score, roc_auc_score, roc_curve
+from torchmetrics.functional import auroc
 
 from odelia.data.datasets import ODELIA_Dataset3D
 from odelia.data.datamodules import DataModule
@@ -19,7 +20,7 @@ from odelia.utils.roc_curve import cm2x, plot_roc_curve, sensitivity_at_fixed_sp
 def one_hot(y, num_classes):
     return np.eye(num_classes, dtype=int)[y]
 
-def evaluate(gt, nn, nn_prob, label, label_vals, path_out):
+def evaluate(gt, nn, nn_prob, label, label_vals, path_out, binary=False):
     plt.rcParams.update({'font.size': 12})
     fontdict = {'fontsize': 12, 'fontweight': 'bold'}  
     colors = ['b', 'g', 'r']
@@ -28,7 +29,7 @@ def evaluate(gt, nn, nn_prob, label, label_vals, path_out):
     y_true = np.asarray(gt)
     labels = list(range(len(label_vals)))
 
-    fig, axes = plt.subplots(ncols=2, figsize=(12, 6))
+    fig, axes = plt.subplots(ncols=2, figsize=(10, 5))
     
     # ------------------------------- ROC-AUC ---------------------------------
     y_true_hot = one_hot(y_true, len(label_vals))
@@ -41,7 +42,10 @@ def evaluate(gt, nn, nn_prob, label, label_vals, path_out):
             continue
         y_true_i = y_true_hot[:,i]
         y_prob_i = y_prob[:, i]
-        fprs, tprs, auc_val, thrs, opt_idx = plot_roc_curve(y_true_i, y_prob_i, axis, color=colors[i], name=f"AUC {label_vals[i]} {label} ", fontdict=fontdict)
+        if len(np.unique(y_true_i)) < 2:
+            logging.warning("Skipping %s for %s due to only one class present in y_true.", label_vals[i], label)
+            continue
+        fprs, tprs, auc_val, thrs, opt_idx = plot_roc_curve(y_true_i, y_prob_i, axis, color=colors[i], name=f"{label_vals[i]} {label} ", fontdict=fontdict, show_std_label=(i==len(label_vals)-1))
         # fprs, tprs, thrs = roc_curve(y_true_hot[:,i], y_prob[:, i], drop_intermediate=False)
         sensitivity = sensitivity_at_fixed_specificity(y_true_i, y_prob_i, fprs, thrs, 0.9)
         specificity = specificity_at_fixed_sensitivity(y_true_i, y_prob_i, tprs, thrs, 0.9)
@@ -49,7 +53,24 @@ def evaluate(gt, nn, nn_prob, label, label_vals, path_out):
         results['AUC'].append(auc_val)
         results['Sensitivity'].append(sensitivity)
         results['Specificity'].append(specificity)
-    print(f"{label}: AUC {np.mean(results['AUC']):.2f} Sensitivity {np.mean(results['Sensitivity']):.2f} Specificity: {np.mean(results['Specificity']):.2f}")
+    print(f"{label}: Macro AUC {np.mean(results['AUC']):.2f}")
+    print(f"{label}: Macro Sensitivity@Spec0.90 {np.mean(results['Sensitivity']):.2f}")
+    print(f"{label}: Macro Specificity@Sens0.90 {np.mean(results['Specificity']):.2f}")
+
+    # Print micro AUC, Sensitivity, Specificity (at 0.9)
+    try:
+        micro_auc = roc_auc_score(y_true_hot, y_prob, average='micro')
+        y_true_flat = y_true_hot.ravel()
+        y_prob_flat = y_prob.ravel()
+        fpr_micro, tpr_micro, thr_micro = roc_curve(y_true_flat, y_prob_flat, drop_intermediate=False)
+        micro_sens = sensitivity_at_fixed_specificity(y_true_flat, y_prob_flat, fpr_micro, thr_micro, 0.9)
+        micro_spec = specificity_at_fixed_sensitivity(y_true_flat, y_prob_flat, tpr_micro, thr_micro, 0.9)
+        print(f"{label}: Micro AUC {micro_auc:.2f}")
+        print(f"{label}: Micro Sensitivity@Spec0.90 {micro_sens:.2f}")
+        print(f"{label}: Micro Specificity@Sens0.90 {micro_spec:.2f}")
+    except ValueError as exc:
+        logging.warning("Unable to compute micro metrics for %s: %s", label, exc)
+
     # fig.tight_layout()
     # fig.savefig(path_out/f'roc_{label}.png', dpi=300)
 
@@ -86,8 +107,8 @@ def evaluate(gt, nn, nn_prob, label, label_vals, path_out):
 if __name__ == "__main__":
     #------------ Get Arguments ----------------
     parser = argparse.ArgumentParser()
-    parser.add_argument('--path_run', default='runs/ODELIA/MST_binary_unilateral_2025_05_13_170027/epoch=22-step=188922.ckpt', type=str)
-    parser.add_argument('--test_institution', default='ODELIA', type=str)
+    parser.add_argument('--path_run', default='runs/ODELIA/MST_ordinal_unilateral_2025_10_26_130238_fold0/epoch=17-step=1836.ckpt', type=str)
+    parser.add_argument('--test_institution', default='RSH', type=str)
     args = parser.parse_args()
     batch_size = 4
 
@@ -105,10 +126,11 @@ if __name__ == "__main__":
 
 
     # ------------ Load Data ----------------
-    split = None if args.test_institution == 'RUMC' else 'test' # Use all samples if testing on RUMC  
+    split = None if args.test_institution == 'RSH' else 'test' # Use all samples if testing on RSH  
     binary = run_name.split('_')[1] == "binary"
     config = run_name.split('_')[2]
-    ds_test = ODELIA_Dataset3D(split=split, institutions=args.test_institution, binary=binary, config=config)
+    fold = int(run_name.split('_')[-1].replace('fold', ''))
+    ds_test = ODELIA_Dataset3D(split=split, fold=fold, institutions=args.test_institution, binary=binary, config=config)
 
 
     dm = DataModule(
@@ -138,8 +160,7 @@ if __name__ == "__main__":
 
         with torch.no_grad():
             logits = model(source.to(device)).cpu()
-
-        # Transfer logits to integer 
+        
         pred_prob = model.logits2probabilities(logits)
         pred = model.logits2labels(logits)
         
@@ -180,4 +201,4 @@ if __name__ == "__main__":
         for i in range(gt.shape[1]):
             label = list(labels.keys())[i]
             label_vals = labels[label]
-            evaluate(gt[:, i], nn[:, i], nn_prob[:,i], label, label_vals,  path_out)
+            evaluate(gt[:, i], nn[:, i], nn_prob[:,i], label, label_vals,  path_out, binary)

@@ -20,7 +20,7 @@ def auc_bootstrapping(y_true, y_score, bootstrapping=1000, drop_intermediate=Fal
 
 
 
-def plot_roc_curve(y_true, y_score, axis, bootstrapping=1000, drop_intermediate=False, fontdict={}, name='ROC', color='b', show_wp=True):
+def plot_roc_curve(y_true, y_score, axis, bootstrapping=1000, drop_intermediate=False, fontdict={}, name='ROC', color='b', show_wp=True, show_std_label=True):
     # ----------- Bootstrapping ------------
     tprs, aucs, thrs, mean_fpr = auc_bootstrapping(y_true, y_score, bootstrapping, drop_intermediate)
 
@@ -46,7 +46,7 @@ def plot_roc_curve(y_true, y_score, axis, bootstrapping=1000, drop_intermediate=
     # --------- Plotting -------------
     axis.plot(fprs, tprs, color=color, label=rf"{name} (AUC={auc_val:.2f}$\pm${std_auc:.2f})",
                 lw=2, alpha=.8)
-    axis.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2, label=r'$\pm$ 1 std. dev.')
+    axis.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2, label=r'$\pm$ 1 std. dev.' if show_std_label else None)
     if show_wp:
         axis.hlines(y=opt_tpr, xmin=0.0, xmax=opt_fpr, color=color, linestyle='--')
         axis.vlines(x=opt_fpr, ymin=0.0, ymax=opt_tpr, color=color, linestyle='--')

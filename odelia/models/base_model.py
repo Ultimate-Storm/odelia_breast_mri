@@ -218,7 +218,7 @@ class BasicRegression(BasicModel):
         in_ch,
         out_ch,
         spatial_dims,
-        loss = CornLossMulti, # MulitCELoss, CornLossMulti,
+        loss = MulitCELoss, # MulitCELoss, CornLossMulti,
         loss_kwargs = {},
         optimizer=torch.optim.AdamW, 
         optimizer_kwargs={'lr':1e-4, 'weight_decay':1e-2},
@@ -234,8 +234,20 @@ class BasicRegression(BasicModel):
         self.loss_func = loss(**loss_kwargs)
         self.loss_kwargs = loss_kwargs 
 
+        self._num_classes = self.loss_func.class_labels_num[0]
+        if isinstance(self.loss_func, CornLossMulti):
+            self._num_classes += 1
+
 
         self.mae = nn.ModuleDict({state:MeanAbsoluteError() for state in ["train_", "val_", "test_"]}) # 'train' not allowed as key
+        self.auc_roc_macro = nn.ModuleDict({
+            state: AUROC(task="multiclass", num_classes=self._num_classes, average="macro")
+            for state in ["train_", "val_", "test_"]
+        })
+        self.auc_roc_micro = nn.ModuleDict({
+            state: AUROC(task="binary")
+            for state in ["train_", "val_", "test_"]
+        })
 
     
     def _step(self, batch: dict, batch_idx: int, state: str, step: int):
@@ -246,18 +258,24 @@ class BasicRegression(BasicModel):
         self.batch_size = batch_size 
 
         # Run Model 
-        pred = self(source) # MAE expects [B, num_classes], CORN expects [B, num_classes*(num_labels-1)]
+        logits = self(source) # MAE expects [B, num_classes], CORN expects [B, num_classes*(num_labels-1)]
 
         # ------------------------- Compute Loss ---------------------------
         logging_dict = {}
-        logging_dict['loss'] = self.loss_func(pred, target)
+        logging_dict['loss'] = self.loss_func(logits, target)
 
         # --------------------- Compute Metrics  -------------------------------
-        pred = self.loss_func.logits2labels(pred)
-
         with torch.no_grad():
-            # Aggregate here to compute for entire set later 
-            self.mae[state+"_"].update(pred, target)
+            pred_labels = self.loss_func.logits2labels(logits)
+            self.mae[state+"_"].update(pred_labels.float(), target)
+
+            probabilities = self.logits2probabilities(logits)
+            probs_per_class = probabilities.squeeze(1)
+            targets_per_class = target.squeeze(-1)
+            self.auc_roc_macro[state+"_"].update(probs_per_class, targets_per_class)
+
+            target_one_hot = F.one_hot(targets_per_class, num_classes=self._num_classes)
+            self.auc_roc_micro[state+"_"].update(probs_per_class.reshape(-1), target_one_hot.reshape(-1))
             
             # ----------------- Log Scalars ----------------------
             for metric_name, metric_val in logging_dict.items():
@@ -267,7 +285,11 @@ class BasicRegression(BasicModel):
         return logging_dict['loss'] 
 
     def _epoch_end(self, state):
-        for name, value in [("MAE", self.mae[state+"_"]), ]:
+        for name, value in [
+            ("MAE", self.mae[state+"_"]),
+            ("AUC_ROC_macro", self.auc_roc_macro[state+"_"]),
+            ("AUC_ROC", self.auc_roc_micro[state+"_"]),
+        ]:
             self.log(f"{state}/{name}", value.compute(), batch_size=self.batch_size, on_step=False, on_epoch=True, 
                      sync_dist=True)
             value.reset()

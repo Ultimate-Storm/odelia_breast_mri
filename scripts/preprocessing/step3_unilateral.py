@@ -4,7 +4,7 @@ import torch
 import numpy as np 
 from multiprocessing import Pool
 from tqdm import tqdm
-
+import gc  # For garbage collection
 
 def crop_breast_height(image, margin_top=10):
     "Crop height to 256 and try to cover breast based on intensity localization"
@@ -17,24 +17,19 @@ def crop_breast_height(image, margin_top=10):
     return  tio.Crop((0,0, bottom, top, 0, 0))
 
 
-def preprocess(path_dir):
+def preprocess(path_dir, target_spacing = (0.7, 0.7, 3), target_shape = (512, 512, 32) ):
     # -------- Settings --------------
     ref_img = tio.ScalarImage(path_dir/'Pre.nii.gz')
     ref_img = tio.ToCanonical()(ref_img)
 
     # Spacing 
-    target_spacing = (0.7, 0.7, 3) 
     ref_img = tio.Resample(target_spacing)(ref_img)
+    resample = tio.Resample(ref_img)
 
-    # Crop 
-    target_shape = (512, 512, 32)
+    # Crop or Pad
+    ref_img = tio.CropOrPad(target_shape, padding_mode='minimum')(ref_img)
 
-    padding_constant = ref_img.data.min().item() # Ugly workaround: padding_mode='minimum' calculates the minimum per axis, not globally  
-    transform = tio.Compose([
-        tio.Resample(ref_img), # Resample to reference image to ensure that origin, direction, etc, fit
-        tio.CropOrPad(target_shape, padding_mode=padding_constant),
-    ])
-    crop_height = crop_breast_height(transform(ref_img))     
+    crop_height = crop_breast_height(ref_img)     
     split_side = {
         'right': tio.Crop((256, 0, 0, 0, 0, 0)),
         'left': tio.Crop((0, 256, 0, 0, 0, 0)),
@@ -43,15 +38,11 @@ def preprocess(path_dir):
 
     for n, path_img in enumerate(path_dir.glob('*.nii.gz')):
         # Read image 
-        img = tio.ScalarImage(path_img)
+        img = tio.LabelMap(path_img) if path_img.name.startswith('mask') else tio.ScalarImage(path_img)
+        img = resample(img)
 
         # Preprocess (eg. Crop/Pad)
-        padding_constant = img.data.min().item()
-        transform = tio.Compose([
-            tio.Resample(ref_img), 
-            tio.CropOrPad(target_shape, padding_mode=padding_constant),
-        ])
-        img = transform(img)
+        img = tio.CropOrPad(target_shape, padding_mode='minimum')(img)
 
         # Crop bottom and top so that height is 256 and breast is preserved  
         img = crop_height(img)
@@ -67,18 +58,29 @@ def preprocess(path_dir):
 
             # Save 
             img_side.save(path_out_dir/path_img.name)
+            img_side.unload()
+            
+        img.unload()
+        
+
+
+    ref_img.unload()
+    del crop_height
+    del resample
+    gc.collect()
+
 
 if __name__ == "__main__":
-    for dataset in ['DUKE', ]: # 'CAM', 'MHA', 'RSH', 'RUMC', 'UKA', 'UMCU', 'DUKE'
+    for dataset in [ 'DUKE' ]: # 'CAM', 'MHA', 'RSH', 'RUMC', 'UKA', 'UMCU'
 
-        path_root = Path('/home/gustav/Documents/datasets/ODELIA/')/dataset
+        path_root = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA')/dataset
         path_root_in_data = path_root/'data'
     
-        path_root_out_data =  path_root/'data_unilateral'
+        path_root_out_data =  path_root/'data_unilateral' 
         path_root_out_data.mkdir(parents=True, exist_ok=True)
 
-        
         path_patients = list(path_root_in_data.iterdir())  # Convert the iterator to a list
+ 
         
         # Option 1: Multi-CPU 
         with Pool() as pool:
@@ -88,5 +90,6 @@ if __name__ == "__main__":
         # Option 2: Single-CPU 
         # for path_dir in tqdm(path_patients):
         #     preprocess(path_dir)
+
         
     

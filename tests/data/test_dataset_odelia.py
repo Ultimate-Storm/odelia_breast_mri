@@ -6,12 +6,16 @@ from torchvision.utils import save_image
 def tensor2image(tensor, batch=0):
     return (tensor if tensor.ndim<5 else torch.swapaxes(tensor[batch], 0, 1).reshape(-1, *tensor.shape[-2:])[:,None])
 
+print(len(ODELIA_Dataset3D(split='test')))
+print(len(ODELIA_Dataset3D(split='train')))
+print(len(ODELIA_Dataset3D(split='val')))
+
 all_institutions = ODELIA_Dataset3D.ALL_INSTITUTIONS
 for institution in all_institutions:
     ds = ODELIA_Dataset3D(
         institutions=institution,
         random_flip=True,
-        random_rotate=True, 
+        # random_rotate=True, 
         # random_inverse=True,
         # noise=True
         binary=False,
