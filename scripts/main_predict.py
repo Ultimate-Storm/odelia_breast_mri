@@ -109,6 +109,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_run', default='runs/ODELIA/MST_ordinal_unilateral_2025_10_26_130238_fold0/epoch=17-step=1836.ckpt', type=str)
     parser.add_argument('--test_institution', default='RSH', type=str)
+    parser.add_argument('--path_root', type=str, default=None,
+                        help='Root dir for dataset (passed to ODELIA_Dataset3D). Defaults to class PATH_ROOT.')
+    parser.add_argument('--out_root', type=str, default=None,
+                        help='Root dir for results output. Defaults to cwd()/results.')
     args = parser.parse_args()
     batch_size = 4
 
@@ -116,7 +120,8 @@ if __name__ == "__main__":
     path_run = Path(args.path_run) 
     train_institution = path_run.parent.parent.name
     run_name = path_run.parent.name
-    path_out = Path().cwd()/'results'/train_institution/run_name/args.test_institution
+    _results_root = Path(args.out_root) / 'results' if args.out_root else Path().cwd() / 'results'
+    path_out = _results_root / train_institution / run_name / args.test_institution
     path_out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -130,7 +135,7 @@ if __name__ == "__main__":
     binary = run_name.split('_')[1] == "binary"
     config = run_name.split('_')[2]
     fold = int(run_name.split('_')[-1].replace('fold', ''))
-    ds_test = ODELIA_Dataset3D(split=split, fold=fold, institutions=args.test_institution, binary=binary, config=config)
+    ds_test = ODELIA_Dataset3D(path_root=args.path_root, split=split, fold=fold, institutions=args.test_institution, binary=binary, config=config)
 
 
     dm = DataModule(
@@ -185,12 +190,17 @@ if __name__ == "__main__":
 
     gt = np.stack(df['GT'].values)
     nn = np.stack(df['NN'].values)
-    nn_prob = np.stack(df['NN_prob'].values) 
-    labels = ODELIA_Dataset3D.CLASS_LABELS[config] # {'Malignant Lesion': ['No', 'Yes']} if binary else 
+    nn_prob = np.stack(df['NN_prob'].values)
+    # Ensure 2D: binary task stores scalar prob/label per sample → shape [N] after stack
+    if gt.ndim == 1: gt = gt.reshape(-1, 1)
+    if nn.ndim == 1: nn = nn.reshape(-1, 1)
+    if nn_prob.ndim == 1: nn_prob = nn_prob.reshape(-1, 1)
+    labels = ODELIA_Dataset3D.CLASS_LABELS[config]
     for i in range(gt.shape[1]):
         label = list(labels.keys())[i]
-        label_vals = labels[label]
-        evaluate(gt[:, i], nn[:, i], nn_prob[:, i], label, label_vals, path_out)
+        # Binary task: only 2 effective classes (no malignancy / malignant)
+        label_vals = ['No', 'Malignant'] if binary else labels[label]
+        evaluate(gt[:, i], nn[:, i], nn_prob[:, i], label, label_vals, path_out, binary=binary)
 
     # If original(bilateral), evaluate for left and right together
     if config == 'original':

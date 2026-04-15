@@ -23,12 +23,18 @@ def process(path_patient):
 
 
 if __name__ == "__main__":
-    path_root = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA')
-    for dataset in ['DUKE', ]: # 'CAM', 'MHA', 'RSH', 'RUMC', 'UKA', 'UMCU', 'DUKE'
-        path_data = path_root/dataset/'data'
-
-        files = path_data.iterdir()  
-
+    # Updated path for Duke dataset
+    path_data = Path('/mnt/nvme2n1p1/jeff/DUKE/data')
+    
+    # Create data directory if it doesn't exist
+    path_data.mkdir(exist_ok=True, parents=True)
+    
+    files = list(path_data.iterdir())
+    
+    if not files:
+        print(f"WARNING: No files found in {path_data}")
+        print("Make sure step 1 (DICOM to NIfTI conversion) has been completed first.")
+    else:
         # Option 1: Multi-CPU 
         with Pool() as pool:
             for _ in tqdm(pool.imap_unordered(process, files)):

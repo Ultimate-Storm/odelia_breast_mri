@@ -90,7 +90,7 @@ def series2nifti(series_info):
 
 if __name__ == "__main__":
     # Setting 
-    path_root = Path('/home/gustav/Documents/datasets/')
+    path_root = Path('/mnt/nvme2n1p1/jeff/')
     path_root_dataset = path_root/'DUKE'
 
     path_root_data = path_root_dataset/'data_raw/'

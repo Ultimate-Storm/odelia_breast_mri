@@ -20,6 +20,12 @@ if __name__ == "__main__":
     parser.add_argument('--task', type=str, default="ordinal", choices=['binary', 'ordinal']) # binary: malignant lesion yes/no, ordinal: no lesion, benign, malignant
     parser.add_argument('--config', type=str, default="unilateral", choices=['original', 'unilateral'])
     parser.add_argument('--fold', type=int, default=0)
+    parser.add_argument('--backbone', type=str, default='dinov2', choices=['dinov2', 'dinov3', 'resnet'],
+                        help='MST backbone type. dinov2=public HF model; dinov3=gated HF model (requires token); resnet=torchvision (no HF needed).')
+    parser.add_argument('--path_root', type=str, default=None,
+                        help='Root dir for dataset (passed to ODELIA_Dataset3D). Defaults to class PATH_ROOT.')
+    parser.add_argument('--out_root', type=str, default=None,
+                        help='Root dir for run output. Defaults to cwd()/runs.')
     args = parser.parse_args()
     binary = args.task == 'binary'
     fold = args.fold
@@ -27,15 +33,16 @@ if __name__ == "__main__":
     #------------ Settings/Defaults ----------------
     current_time = datetime.now().strftime("%Y_%m_%d_%H%M%S")
     run_name = f'{args.model}_{args.task}_{args.config}_{current_time}_fold{fold}'
-    path_run_dir = Path.cwd() / 'runs' / args.institution / run_name
+    _runs_root = Path(args.out_root) / 'runs' if args.out_root else Path.cwd() / 'runs'
+    path_run_dir = _runs_root / args.institution / run_name
     path_run_dir.mkdir(parents=True, exist_ok=True)
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
     torch.set_float32_matmul_precision('high')
 
     # ------------ Load Data ----------------
-    ds_train = ODELIA_Dataset3D(institutions=args.institution, split='train', binary=binary, config=args.config,
+    ds_train = ODELIA_Dataset3D(path_root=args.path_root, institutions=args.institution, split='train', binary=binary, config=args.config,
                                  random_flip=True, random_rotate=True, random_inverse=False, noise=True, fold=fold)
-    ds_val = ODELIA_Dataset3D(institutions=args.institution, split='val', binary=binary, config=args.config, fold=fold)
+    ds_val = ODELIA_Dataset3D(path_root=args.path_root, institutions=args.institution, split='val', binary=binary, config=args.config, fold=fold)
     
     samples = len(ds_train) + len(ds_val)
     batch_size = 8
@@ -68,11 +75,10 @@ if __name__ == "__main__":
         'MST': MST if binary else MSTRegression
     }
     MODEL = model_map.get(args.model, None)
-    model = MODEL(
-        in_ch = 1,
-        out_ch=out_ch,
-        loss_kwargs=loss_kwargs
-    )
+    model_kwargs = dict(in_ch=1, out_ch=out_ch, loss_kwargs=loss_kwargs)
+    if args.model == 'MST':
+        model_kwargs['backbone_type'] = args.backbone
+    model = MODEL(**model_kwargs)
 
 
     # Load pretrained model 
@@ -82,7 +88,7 @@ if __name__ == "__main__":
     # -------------- Training Initialization ---------------
     to_monitor = "val/AUC_ROC"  # if binary else "val/MAE"
     min_max = "max" # if binary else "min"
-    log_every_n_steps = 50
+    log_every_n_steps = max(1, min(50, int(steps_per_epoch)))
     logger = WandbLogger(project='ODELIA', group=args.institution, name=run_name, log_model=False)
 
     early_stopping = EarlyStopping(

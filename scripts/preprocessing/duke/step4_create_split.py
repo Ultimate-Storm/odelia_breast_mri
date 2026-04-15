@@ -35,16 +35,16 @@ def load_annotation(path_root_metadata:Path):
             'PatientID': df["PatientID"],
             'UID': df["PatientID"] + f"_{side}",
             'Age': df['Age'].abs(), # turn negative ages to positive
-            'Lesion':df[["Location", "Bilateral"]].apply(lambda ds: int((ds[0] == side[0].upper()) | (ds[1]==1)) , axis=1) } ) )
+            'Lesion':df[["Location", "Bilateral"]].apply(lambda ds: int((ds["Location"] == side[0].upper()) | (ds["Bilateral"]==1)) , axis=1) } ) )
     df = pd.concat(dfs,  ignore_index=True)
     df = df.reset_index(drop=True)
     return df
 
 
 if __name__ == "__main__":
-    path_root = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA/')
+    path_root = Path('/mnt/nvme2n1p1/jeff/')
     path_root_dataset = path_root/'DUKE'
-    path_root_metadata = path_root_dataset/'metadata_unilateral'
+    path_root_metadata = path_root_dataset/'metadata'
 
 
     df = load_annotation(path_root_metadata)

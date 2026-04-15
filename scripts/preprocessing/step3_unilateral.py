@@ -73,7 +73,7 @@ def preprocess(path_dir, target_spacing = (0.7, 0.7, 3), target_shape = (512, 51
 if __name__ == "__main__":
     for dataset in [ 'DUKE' ]: # 'CAM', 'MHA', 'RSH', 'RUMC', 'UKA', 'UMCU'
 
-        path_root = Path('/home/homesOnMaster/gfranzes/Documents/datasets/ODELIA')/dataset
+        path_root = Path('/mnt/nvme2n1p1/jeff')/dataset
         path_root_in_data = path_root/'data'
     
         path_root_out_data =  path_root/'data_unilateral' 
