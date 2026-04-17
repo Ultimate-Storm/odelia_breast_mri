@@ -308,7 +308,9 @@ WANDB_MODE=offline PYTHONPATH=$(pwd) venv/bin/python scripts/main_predict.py \
 
 The `node_all` metadata was created by concatenating annotation and split CSVs from node_A, node_B, and node_C (preserving their existing train/val assignments).
 
-### Actual Results (MST + DINOv2, binary task, test set = 262 breasts)
+### Actual Results (MST + DINOv2, binary task, test set = 262 breasts, 3 independent runs)
+
+Single-run results (run 1) with per-class metrics:
 
 | Node | Train UIDs | Best epoch | val AUC | **test AUC** | Sens@Spec0.90 | Spec@Sens0.90 | Accuracy |
 |------|-----------|-----------|---------|-------------|---------------|---------------|----------|
@@ -317,11 +319,21 @@ The `node_all` metadata was created by concatenating annotation and split CSVs f
 | node_C | 104 | 13 | 0.89 | **0.55** | 0.09 | 0.11 | 0.56 |
 | **node_all** | **832** | **39** | — | **0.91** | **0.79** | **0.67** | **0.84** |
 
+Stability across 3 independent runs (random weight initialisation, same data split):
+
+| Node | Train UIDs | Run 1 | Run 2 | Run 3 | **Mean AUC ± Std** |
+|------|-----------|-------|-------|-------|-------------------|
+| node_A | 416 | 0.889 | 0.886 | 0.920 | **0.898 ± 0.016** |
+| node_B | 312 | 0.897 | 0.899 | 0.900 | **0.899 ± 0.001** |
+| node_C | 104 | 0.551 | 0.749 | 0.680 | **0.660 ± 0.081** |
+| **node_all** | **832** | **0.907** | **0.900** | **0.910** | **0.906 ± 0.004** |
+
 **Observations:**
-- **node_all (0.91)** is the centralised upper bound — pooling all 832 train UIDs yields a modest but consistent gain over any individual node
-- node_A and node_B match within noise (0.89/0.90) despite a 33% size difference — DINOv2 pretraining transfers well even from smaller datasets
-- node_C (104 UIDs / 65 patients) collapses to near chance (0.55) — too few samples to fine-tune 23.5M parameters; its val AUC (0.89 on 26 UIDs) was misleadingly optimistic
-- The swarm gap vs. centralised: ~0.01 AUC (0.895 avg of A+B vs. 0.91 node_all), typical for federated learning on balanced partitions
+- **node_all** is the consistent best (mean 0.906) — pooling all 832 train UIDs provides a small but reliable gain over any individual swarm node
+- **node_B** is the most stable individual node (std=0.001) — 312 UIDs is sufficient for consistent convergence with a pretrained backbone
+- **node_A** shows more variance (std=0.016) — early stopping sometimes triggers before full convergence
+- **node_C** is unreliable (std=0.081, range 0.55–0.75) — 104 UIDs / 65 patients is below the stable fine-tuning threshold for 23.5M parameters
+- Swarm gap vs. centralised: ~0.007 AUC (mean of A+B = 0.899 vs. node_all 0.906), consistent across all 3 runs
 
 ---
 

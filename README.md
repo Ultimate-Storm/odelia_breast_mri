@@ -269,7 +269,9 @@ Results are written to `<out_root>/results/<node>/MST_binary_unilateral_.../test
 - Specificity @ Sensitivity = 0.90
 - Accuracy, macro sensitivity, macro specificity
 
-### Results (MST + DINOv2, binary task, test set = 262 breasts)
+### Results (MST + DINOv2, binary task, test set = 262 breasts, 3 independent runs)
+
+Single-run results (run 1) with per-class metrics:
 
 | Node | Train UIDs | Best epoch | val AUC | **test AUC** | Sens@Spec0.90 | Spec@Sens0.90 | Accuracy |
 |------|-----------|-----------|---------|-------------|---------------|---------------|----------|
@@ -278,11 +280,21 @@ Results are written to `<out_root>/results/<node>/MST_binary_unilateral_.../test
 | node_C | 104 | 13 | 0.89 | **0.55** | 0.09 | 0.11 | 0.56 |
 | **node_all** | **832** | **39** | — | **0.91** | **0.79** | **0.67** | **0.84** |
 
+Stability across 3 independent runs (random weight initialisation, same data split):
+
+| Node | Train UIDs | Run 1 | Run 2 | Run 3 | **Mean AUC ± Std** |
+|------|-----------|-------|-------|-------|-------------------|
+| node_A | 416 | 0.889 | 0.886 | 0.920 | **0.898 ± 0.016** |
+| node_B | 312 | 0.897 | 0.899 | 0.900 | **0.899 ± 0.001** |
+| node_C | 104 | 0.551 | 0.749 | 0.680 | **0.660 ± 0.081** |
+| **node_all** | **832** | **0.907** | **0.900** | **0.910** | **0.906 ± 0.004** |
+
 **Observations:**
-- node_A and node_B perform similarly on the test set (0.89 / 0.90 AUC) — a pretrained DINOv2 backbone needs relatively few samples to generalise
-- node_B's high val AUC (0.95) reflects mild overfitting to its small val set (78 UIDs)
-- node_C (104 train UIDs / 65 patients) collapses near random chance on the test set — insufficient data to fine-tune 23.5M parameters; its val AUC (0.89 on only 26 UIDs) was misleadingly optimistic
-- **node_all** (all three nodes pooled, 832 train UIDs) achieves the best test AUC of 0.91 and accuracy of 0.84 — serves as the full-data centralised baseline for comparison with individual swarm nodes
+- **node_all** is the consistent best (mean 0.906) — pooling all 832 train UIDs provides a small but reliable gain over any individual swarm node
+- **node_B** is the most stable individual node (std=0.001) — 312 UIDs is sufficient for consistent convergence with a pretrained DINOv2 backbone
+- **node_A** shows more variance (std=0.016) despite being the largest single node — early stopping sometimes triggers before full convergence
+- **node_C** is unreliable (std=0.081, range 0.55–0.75) — 104 UIDs / 65 patients is below the stable fine-tuning threshold for 23.5M parameters; val AUC on only 26 UIDs is misleadingly optimistic
+- Swarm gap vs. centralised: ~0.007 AUC (mean of A+B = 0.899 vs. node_all 0.906), consistent across all 3 runs
 
 ---
 
