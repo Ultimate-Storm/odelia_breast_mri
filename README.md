@@ -296,6 +296,24 @@ Stability across 3 independent runs (random weight initialisation, same data spl
 - **node_C** is unreliable (std=0.081, range 0.55–0.75) — 104 UIDs / 65 patients is below the stable fine-tuning threshold for 23.5M parameters; val AUC on only 26 UIDs is misleadingly optimistic
 - Swarm gap vs. centralised: ~0.007 AUC (mean of A+B = 0.899 vs. node_all 0.906), consistent across all 3 runs
 
+### Non-IID Split — Age-Stratified (1 run)
+
+To simulate realistic institutional heterogeneity, the dataset is re-partitioned by patient age. Younger patients have denser breast tissue (higher background parenchymal enhancement); older patients have fattier tissue — a genuine biological difference that affects MRI appearance and model decision boundaries.
+
+| Node | Age range | Analogy | Train UIDs | IID AUC (mean±std) | **Non-IID AUC** | Δ |
+|------|-----------|---------|-----------|-------------------|-----------------|---|
+| node_A | 52–83 yrs | Post-menopausal screening centre | 416 | 0.898 ± 0.016 | **0.85** | −0.048 |
+| node_B | 40–52 yrs | General hospital | 312 | 0.899 ± 0.001 | **0.90** | +0.001 |
+| node_C | 24–40 yrs | Young/hereditary-risk programme | 104 | 0.660 ± 0.081 | **0.84** | +0.180 |
+| node_all | 24–83 yrs | Centralised baseline | 832 | 0.906 ± 0.004 | **0.90** | −0.006 |
+
+**Observations:**
+- **node_B (middle age) performs best** — its training age range overlaps most with the test set median, making it the best-calibrated individual node
+- **node_A dropped** (0.85 vs 0.898 IID) — trained only on older fatty tissue, it struggles with younger dense breasts in the balanced test set
+- **node_C improved dramatically** (0.84 vs 0.660 IID) — age-stratified assignment gives it a coherent training distribution; poor IID performance was due to random undersampling, not an inherent size limit
+- **node_all unchanged** (0.90) — covers all ages, behaves as the centralised upper bound regardless of split strategy
+- The non-IID gap between best and worst node (0.90 − 0.85 = 0.05) is larger and more interpretable than the IID gap (0.899 − 0.660 = 0.239, dominated by node_C data scarcity)
+
 ---
 
 ## Model Architecture
