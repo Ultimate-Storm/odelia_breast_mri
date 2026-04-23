@@ -2,7 +2,10 @@
 
 Baseline code for breast MRI malignancy classification using the **Multi-Slice Transformer (MST)** and **ResNet** models. Supports single-institution training, multi-institution federated evaluation, and **swarm learning simulation** on the public DUKE dataset.
 
-> For step-by-step commands and troubleshooting details see [PREPROCESSING_GUIDE.md](PREPROCESSING_GUIDE.md).
+> **Documentation:**
+> - [docs/preprocessing_guide.md](docs/preprocessing_guide.md) — step-by-step commands and troubleshooting
+> - [docs/experiments.md](docs/experiments.md) — full experiment log (IID, non-IID, external evaluation)
+> - [docs/validation_summary.md](docs/validation_summary.md) — consolidated results across all evaluations
 
 ---
 

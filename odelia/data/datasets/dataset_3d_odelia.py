@@ -40,6 +40,7 @@ class ODELIA_Dataset3D(data.Dataset):
             config="unilateral", # original, unilateral 
             split= None,
             fraction=None,
+            allow_missing_labels=False,
             transform = None,
             random_flip = False,
             random_rotate=False,
@@ -57,6 +58,7 @@ class ODELIA_Dataset3D(data.Dataset):
         self.data_dir = self.DATA_DIR[config]
         self.labels = list(self.class_labels.keys()) if labels is None else labels 
         self.class_labels_num = [len(self.class_labels[l]) for l in self.labels] # For CORN Loss -1 
+        self.allow_missing_labels = allow_missing_labels
 
         if self.binary and len(self.labels) >2:
             raise ValueError("If binary=True, only two labels can be used.")
@@ -108,6 +110,16 @@ class ODELIA_Dataset3D(data.Dataset):
             df_anno = pd.read_csv(path_metadata/'annotation.csv', dtype={'UID':str, 'PatientID':str})
             df = df.merge(df_anno, on='UID', how='inner')
 
+            missing_labels = [label for label in self.labels if label not in df.columns]
+            if missing_labels:
+                if not self.allow_missing_labels:
+                    raise KeyError(
+                        f"Missing label columns {missing_labels} in {path_metadata/'annotation.csv'}. "
+                        "Set allow_missing_labels=True for inference-only datasets."
+                    )
+                for label in missing_labels:
+                    df[label] = -1
+
             dfs.append(df)
         df = pd.concat(dfs).reset_index(drop=True)
 
@@ -134,12 +146,14 @@ class ODELIA_Dataset3D(data.Dataset):
         uid = item['UID']
         institution = item['Institution']
 
-        target = np.stack(item[self.labels].values)
+        target = np.asarray(item[self.labels].values, dtype=np.int64)
 
         # Use only binary label (Cancer yes/no)
         # NOTE: 0=No Lesion, 1=Benign Lesion, 2=Malignant Lesion
         if (institution not in ["UKA_all_new"]) and self.binary:
+            missing_mask = target < 0
             target = (target == 2).astype(int)
+            target[missing_mask] = -1
     
         path_folder = self.path_root/institution/self.data_dir/uid
         img = self.load_img([path_folder/f'{name}.nii.gz' for name in [ 'Sub_1',]]) # 'Pre', 'Sub_1', 'T2'

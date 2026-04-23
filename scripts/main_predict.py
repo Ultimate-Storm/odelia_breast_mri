@@ -113,6 +113,8 @@ if __name__ == "__main__":
                         help='Root dir for dataset (passed to ODELIA_Dataset3D). Defaults to class PATH_ROOT.')
     parser.add_argument('--out_root', type=str, default=None,
                         help='Root dir for results output. Defaults to cwd()/results.')
+    parser.add_argument('--inference_only', action='store_true',
+                        help='Allow missing labels in the external dataset and skip metrics if labels are unavailable.')
     args = parser.parse_args()
     batch_size = 4
 
@@ -131,11 +133,25 @@ if __name__ == "__main__":
 
 
     # ------------ Load Data ----------------
-    split = None if args.test_institution == 'RSH' else 'test' # Use all samples if testing on RSH  
+    institution_arg = args.test_institution
+    if "," in institution_arg:
+        test_institutions = [part.strip() for part in institution_arg.split(",") if part.strip()]
+    else:
+        test_institutions = institution_arg
+
+    split = None if institution_arg == 'RSH' else 'test' # Use all samples if testing on RSH  
     binary = run_name.split('_')[1] == "binary"
     config = run_name.split('_')[2]
     fold = int(run_name.split('_')[-1].replace('fold', ''))
-    ds_test = ODELIA_Dataset3D(path_root=args.path_root, split=split, fold=fold, institutions=args.test_institution, binary=binary, config=config)
+    ds_test = ODELIA_Dataset3D(
+        path_root=args.path_root,
+        split=split,
+        fold=fold,
+        institutions=test_institutions,
+        binary=binary,
+        config=config,
+        allow_missing_labels=args.inference_only,
+    )
 
 
     dm = DataModule(
@@ -195,6 +211,9 @@ if __name__ == "__main__":
     if gt.ndim == 1: gt = gt.reshape(-1, 1)
     if nn.ndim == 1: nn = nn.reshape(-1, 1)
     if nn_prob.ndim == 1: nn_prob = nn_prob.reshape(-1, 1)
+    if args.inference_only or (gt < 0).any():
+        logging.info("Skipping evaluation because labels are unavailable or inference_only=True. Predictions saved to %s", path_out/'results.csv')
+        raise SystemExit(0)
     labels = ODELIA_Dataset3D.CLASS_LABELS[config]
     for i in range(gt.shape[1]):
         label = list(labels.keys())[i]
