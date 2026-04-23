@@ -1,106 +1,233 @@
+import argparse
 from pathlib import Path
 import logging
 from tqdm import tqdm
 import torch 
-import torch.nn.functional as F
 import numpy as np 
-from torch.utils.data.dataset import Subset
-from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 import pandas as pd 
+import ast 
+import torch.nn.functional as F
+from sklearn.metrics import confusion_matrix, accuracy_score, cohen_kappa_score, roc_auc_score, roc_curve
+from torchmetrics.functional import auroc
 
-from odelia.data.datasets import DUKE_Dataset3D
+from odelia.data.datasets import ODELIA_Dataset3D
 from odelia.data.datamodules import DataModule
-from odelia.models import ResNet
-from odelia.utils.roc_curve import plot_roc_curve, cm2acc, cm2x
+from odelia.models import MST, ResNet, MSTRegression, ResNetRegression
+from odelia.utils.roc_curve import cm2x, plot_roc_curve, sensitivity_at_fixed_specificity, specificity_at_fixed_sensitivity
 
+def one_hot(y, num_classes):
+    return np.eye(num_classes, dtype=int)[y]
+
+def evaluate(gt, nn, nn_prob, label, label_vals, path_out, binary=False):
+    plt.rcParams.update({'font.size': 12})
+    fontdict = {'fontsize': 12, 'fontweight': 'bold'}  
+    colors = ['b', 'g', 'r']
+    y_prob = np.asarray(nn_prob)  
+    y_pred = np.asarray(nn)
+    y_true = np.asarray(gt)
+    labels = list(range(len(label_vals)))
+
+    fig, axes = plt.subplots(ncols=2, figsize=(10, 5))
+    
+    # ------------------------------- ROC-AUC ---------------------------------
+    y_true_hot = one_hot(y_true, len(label_vals))
+    y_prob = np.stack([1-y_prob, y_prob], axis=1) if binary else y_prob # Convert to one-hot 
+    # fig, axis = plt.subplots(ncols=1, nrows=1, figsize=(6,6))
+    axis = axes[0]
+    results = {'AUC': [], 'Sensitivity': [], 'Specificity': []}
+    for i in range(len(label_vals)):
+        if binary and i == 0:
+            continue
+        y_true_i = y_true_hot[:,i]
+        y_prob_i = y_prob[:, i]
+        if len(np.unique(y_true_i)) < 2:
+            logging.warning("Skipping %s for %s due to only one class present in y_true.", label_vals[i], label)
+            continue
+        fprs, tprs, auc_val, thrs, opt_idx = plot_roc_curve(y_true_i, y_prob_i, axis, color=colors[i], name=f"{label_vals[i]} {label} ", fontdict=fontdict, show_std_label=(i==len(label_vals)-1))
+        # fprs, tprs, thrs = roc_curve(y_true_hot[:,i], y_prob[:, i], drop_intermediate=False)
+        sensitivity = sensitivity_at_fixed_specificity(y_true_i, y_prob_i, fprs, thrs, 0.9)
+        specificity = specificity_at_fixed_sensitivity(y_true_i, y_prob_i, tprs, thrs, 0.9)
+        print(f"{label_vals[i]} {label}: AUC {auc_val:.2f} Sensitivity {sensitivity:.2f} Specificity: {specificity:.2f}")
+        results['AUC'].append(auc_val)
+        results['Sensitivity'].append(sensitivity)
+        results['Specificity'].append(specificity)
+    print(f"{label}: Macro AUC {np.mean(results['AUC']):.2f}")
+    print(f"{label}: Macro Sensitivity@Spec0.90 {np.mean(results['Sensitivity']):.2f}")
+    print(f"{label}: Macro Specificity@Sens0.90 {np.mean(results['Specificity']):.2f}")
+
+    # Print micro AUC, Sensitivity, Specificity (at 0.9)
+    try:
+        micro_auc = roc_auc_score(y_true_hot, y_prob, average='micro')
+        y_true_flat = y_true_hot.ravel()
+        y_prob_flat = y_prob.ravel()
+        fpr_micro, tpr_micro, thr_micro = roc_curve(y_true_flat, y_prob_flat, drop_intermediate=False)
+        micro_sens = sensitivity_at_fixed_specificity(y_true_flat, y_prob_flat, fpr_micro, thr_micro, 0.9)
+        micro_spec = specificity_at_fixed_sensitivity(y_true_flat, y_prob_flat, tpr_micro, thr_micro, 0.9)
+        print(f"{label}: Micro AUC {micro_auc:.2f}")
+        print(f"{label}: Micro Sensitivity@Spec0.90 {micro_sens:.2f}")
+        print(f"{label}: Micro Specificity@Sens0.90 {micro_spec:.2f}")
+    except ValueError as exc:
+        logging.warning("Unable to compute micro metrics for %s: %s", label, exc)
+
+    # fig.tight_layout()
+    # fig.savefig(path_out/f'roc_{label}.png', dpi=300)
+
+
+
+    #  -------------------------- Confusion Matrix -------------------------
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    acc = accuracy_score(y_true, y_pred)
+    metrics = cm2x(cm, "macro")
+
+    print(f"Accuracy: {acc:.2f}")
+    print(f"Sensitivity: {metrics['TPR']:.2f}")
+    print(f"Specificity {metrics['TNR']:.2f}")
+
+    df_cm = pd.DataFrame(data=cm, columns=label_vals, index=label_vals)
+    # fig, axis = plt.subplots(1, 1, figsize=(4,4))
+    axis = axes[1]
+    sns.heatmap(df_cm, ax=axis, cbar=False, cmap="Blues", fmt='d', annot=True) 
+    axis.set_title(f'{label}', fontdict=fontdict) # CM =  [[TN, FP], [FN, TP]] 
+    axis.set_xlabel('Neural Network' , fontdict=fontdict)
+    axis.set_ylabel('Radiologist' , fontdict=fontdict)
+    # fig.tight_layout()
+    # fig.savefig(path_out/f'confusion_matrix_{label}.png', dpi=300)
+
+    fig.tight_layout()
+    fig.subplots_adjust(wspace=0.4)
+    fig.savefig(path_out/f'roc_conf_{label}.png', dpi=300)
+
+    #  -------------------------- Agreement -------------------------
+    # kappa = cohen_kappa_score(y_true, y_pred, weights="linear") 
+    # print(label, "Kappa", kappa)
 
 
 if __name__ == "__main__":
+    #------------ Get Arguments ----------------
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path_run', default='runs/ODELIA/MST_ordinal_unilateral_2025_10_26_130238_fold0/epoch=17-step=1836.ckpt', type=str)
+    parser.add_argument('--test_institution', default='RSH', type=str)
+    parser.add_argument('--path_root', type=str, default=None,
+                        help='Root dir for dataset (passed to ODELIA_Dataset3D). Defaults to class PATH_ROOT.')
+    parser.add_argument('--out_root', type=str, default=None,
+                        help='Root dir for results output. Defaults to cwd()/results.')
+    parser.add_argument('--inference_only', action='store_true',
+                        help='Allow missing labels in the external dataset and skip metrics if labels are unavailable.')
+    args = parser.parse_args()
+    batch_size = 4
 
     #------------ Settings/Defaults ----------------
-    path_run = Path.cwd() / 'runs/2023_01_30_084906'
-    path_out = Path().cwd()/'results'/path_run.name
+    path_run = Path(args.path_run) 
+    train_institution = path_run.parent.parent.name
+    run_name = path_run.parent.name
+    _results_root = Path(args.out_root) / 'results' if args.out_root else Path().cwd() / 'results'
+    path_out = _results_root / train_institution / run_name / args.test_institution
     path_out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    fontdict = {'fontsize': 10, 'fontweight': 'bold'}
-
+    
     # ------------ Logging --------------------
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
 
+
     # ------------ Load Data ----------------
-    ds = DUKE_Dataset3D(
-        flip=False, 
-        path_root = '/mnt/hdd/datasets/breast/DUKE/dataset_unilateral_256x256x32'
+    institution_arg = args.test_institution
+    if "," in institution_arg:
+        test_institutions = [part.strip() for part in institution_arg.split(",") if part.strip()]
+    else:
+        test_institutions = institution_arg
+
+    split = None if institution_arg == 'RSH' else 'test' # Use all samples if testing on RSH  
+    binary = run_name.split('_')[1] == "binary"
+    config = run_name.split('_')[2]
+    fold = int(run_name.split('_')[-1].replace('fold', ''))
+    ds_test = ODELIA_Dataset3D(
+        path_root=args.path_root,
+        split=split,
+        fold=fold,
+        institutions=test_institutions,
+        binary=binary,
+        config=config,
+        allow_missing_labels=args.inference_only,
     )
 
-    # WARNING: Very simple split approach
-    train_size = int(0.64 * len(ds))
-    val_size = int(0.16 * len(ds))
-    test_size = len(ds) - train_size - val_size
-    ds_test = Subset(ds, list(range(train_size+val_size, len(ds))))
-    
+
     dm = DataModule(
         ds_test = ds_test,
-        batch_size=1, 
-        # num_workers=0,
+        batch_size=batch_size, 
+        num_workers=16,
         # pin_memory=True,
     ) 
 
 
     # ------------ Initialize Model ------------
-    model = ResNet.load_best_checkpoint(path_run, version=0)
+    model = run_name.split('_')[0]
+    model_map = {
+        'ResNet': ResNet if binary else  ResNetRegression,
+        'MST': MST if binary else MSTRegression
+    }
+    MODEL = model_map.get(model, None)
+    model = MODEL.load_from_checkpoint(path_run)
     model.to(device)
     model.eval()
 
-    results = {'GT':[], 'NN':[], 'NN_pred':[]}
+
+    # ------------ Predict ----------------
+    results = []
     for batch in tqdm(dm.test_dataloader()):
-        source, target = batch['source'], batch['target']
+        uid, source, target = batch['uid'], batch['source'], batch['target']
 
-        # Run Model 
-        pred = model(source.to(device)).cpu()
-        pred = torch.sigmoid(pred)
-        pred_binary = torch.argmax(pred, dim=1)
+        with torch.no_grad():
+            logits = model(source.to(device)).cpu()
+        
+        pred_prob = model.logits2probabilities(logits)
+        pred = model.logits2labels(logits)
+        
+        for b in range(pred.size(0)):
+            results.append({
+                'UID': uid[b],
+                'GT': target[b].tolist(),
+                'NN': pred[b].tolist(),
+                'NN_prob': pred_prob[b].tolist(),
+            })
 
-        results['GT'].extend(target.tolist())
-        results['NN'].extend(pred_binary.tolist())
-        results['NN_pred'].extend(pred[:, 0].tolist())
-
+    # ------------ Save Results ----------------
     df = pd.DataFrame(results)
-    df.to_csv(path_out/'results.csv')
-
-    #  -------------------------- Confusion Matrix -------------------------
-    cm = confusion_matrix(df['GT'], df['NN'])
-    tn, fp, fn, tp = cm.ravel()
-    n = len(df)
-    logger.info("Confusion Matrix: TN {} ({:.2f}%), FP {} ({:.2f}%), FN {} ({:.2f}%), TP {} ({:.2f}%)".format(tn, tn/n*100, fp, fp/n*100, fn, fn/n*100, tp, tp/n*100 ))
-
-    
-    # ------------------------------- ROC-AUC ---------------------------------
-    fig, axis = plt.subplots(ncols=1, nrows=1, figsize=(6,6)) 
-    y_pred_lab = np.asarray(df['NN_pred'])
-    y_true_lab = np.asarray(df['GT'])
-    tprs, fprs, auc_val, thrs, opt_idx, cm = plot_roc_curve(y_true_lab, y_pred_lab, axis, fontdict=fontdict)
-    fig.tight_layout()
-    fig.savefig(path_out/f'roc.png', dpi=300)
+    df.to_csv(path_out/'results.csv', index=False)
 
 
-    #  -------------------------- Confusion Matrix -------------------------
-    acc = cm2acc(cm)
-    _,_, sens, spec = cm2x(cm)
-    df_cm = pd.DataFrame(data=cm, columns=['False', 'True'], index=['False', 'True'])
-    fig, axis = plt.subplots(1, 1, figsize=(4,4))
-    sns.heatmap(df_cm, ax=axis, cbar=False, fmt='d', annot=True) 
-    axis.set_title(f'Confusion Matrix ACC={acc:.2f}', fontdict=fontdict) # CM =  [[TN, FP], [FN, TP]] 
-    axis.set_xlabel('Prediction' , fontdict=fontdict)
-    axis.set_ylabel('True' , fontdict=fontdict)
-    fig.tight_layout()
-    fig.savefig(path_out/f'confusion_matrix.png', dpi=300)
+    # ------------ Evaluate ----------------
+    df = pd.read_csv(path_out/'results.csv')
+    df['GT'] = df['GT'].apply(ast.literal_eval)
+    df['NN'] = df['NN'].apply(ast.literal_eval)
+    df['NN_prob'] = df['NN_prob'].apply(ast.literal_eval)
 
-    logger.info(f"Malign  Objects: {np.sum(y_true_lab)}")
-    logger.info("Confusion Matrix {}".format(cm))
-    logger.info("Sensitivity {:.2f}".format(sens))
-    logger.info("Specificity {:.2f}".format(spec))
+    gt = np.stack(df['GT'].values)
+    nn = np.stack(df['NN'].values)
+    nn_prob = np.stack(df['NN_prob'].values)
+    # Ensure 2D: binary task stores scalar prob/label per sample → shape [N] after stack
+    if gt.ndim == 1: gt = gt.reshape(-1, 1)
+    if nn.ndim == 1: nn = nn.reshape(-1, 1)
+    if nn_prob.ndim == 1: nn_prob = nn_prob.reshape(-1, 1)
+    if args.inference_only or (gt < 0).any():
+        logging.info("Skipping evaluation because labels are unavailable or inference_only=True. Predictions saved to %s", path_out/'results.csv')
+        raise SystemExit(0)
+    labels = ODELIA_Dataset3D.CLASS_LABELS[config]
+    for i in range(gt.shape[1]):
+        label = list(labels.keys())[i]
+        # Binary task: only 2 effective classes (no malignancy / malignant)
+        label_vals = ['No', 'Malignant'] if binary else labels[label]
+        evaluate(gt[:, i], nn[:, i], nn_prob[:, i], label, label_vals, path_out, binary=binary)
 
+    # If original(bilateral), evaluate for left and right together
+    if config == 'original':
+        gt = gt.reshape(-1, 1)
+        nn = nn.reshape(-1, 1)
+        nn_prob = nn_prob.reshape(-1, 1)
+        labels = ODELIA_Dataset3D.CLASS_LABELS['unilateral']
+        for i in range(gt.shape[1]):
+            label = list(labels.keys())[i]
+            label_vals = labels[label]
+            evaluate(gt[:, i], nn[:, i], nn_prob[:,i], label, label_vals,  path_out, binary)

@@ -19,6 +19,8 @@
 /build/
 
 /runs 
+/wandb
 /results
+/scripts/playground
 
 !/media/**

@@ -5,61 +5,96 @@ from datetime import datetime
 import torch 
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
-from torch.utils.data.dataset import Subset
+from pytorch_lightning.loggers import WandbLogger
 
-from odelia.data.datasets import DUKE_Dataset3D
+from odelia.data.datasets import ODELIA_Dataset3D
 from odelia.data.datamodules import DataModule
-from odelia.models import ResNet
-
+from odelia.models import ResNet, MST, ResNetRegression, MSTRegression
+import argparse
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--institution', default='ODELIA', type=str)
+    parser.add_argument('--model', type=str, default='MST', choices=['ResNet', 'MST']) 
+    parser.add_argument('--task', type=str, default="ordinal", choices=['binary', 'ordinal']) # binary: malignant lesion yes/no, ordinal: no lesion, benign, malignant
+    parser.add_argument('--config', type=str, default="unilateral", choices=['original', 'unilateral'])
+    parser.add_argument('--fold', type=int, default=0)
+    parser.add_argument('--backbone', type=str, default='dinov2', choices=['dinov2', 'dinov3', 'resnet'],
+                        help='MST backbone type. dinov2=public HF model; dinov3=gated HF model (requires token); resnet=torchvision (no HF needed).')
+    parser.add_argument('--path_root', type=str, default=None,
+                        help='Root dir for dataset (passed to ODELIA_Dataset3D). Defaults to class PATH_ROOT.')
+    parser.add_argument('--out_root', type=str, default=None,
+                        help='Root dir for run output. Defaults to cwd()/runs.')
+    args = parser.parse_args()
+    binary = args.task == 'binary'
+    fold = args.fold
 
     #------------ Settings/Defaults ----------------
     current_time = datetime.now().strftime("%Y_%m_%d_%H%M%S")
-    path_run_dir = Path.cwd() / 'runs' / str(current_time)
+    run_name = f'{args.model}_{args.task}_{args.config}_{current_time}_fold{fold}'
+    _runs_root = Path(args.out_root) / 'runs' if args.out_root else Path.cwd() / 'runs'
+    path_run_dir = _runs_root / args.institution / run_name
     path_run_dir.mkdir(parents=True, exist_ok=True)
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
-
+    torch.set_float32_matmul_precision('high')
 
     # ------------ Load Data ----------------
-    ds = DUKE_Dataset3D(
-        flip=True, 
-        path_root = '/mnt/hdd/datasets/breast/DUKE/dataset_256x256x32_lr_2'
+    ds_train = ODELIA_Dataset3D(path_root=args.path_root, institutions=args.institution, split='train', binary=binary, config=args.config,
+                                 random_flip=True, random_rotate=True, random_inverse=False, noise=True, fold=fold)
+    ds_val = ODELIA_Dataset3D(path_root=args.path_root, institutions=args.institution, split='val', binary=binary, config=args.config, fold=fold)
+    
+    samples = len(ds_train) + len(ds_val)
+    batch_size = 8
+    accumulate_grad_batches = 1 
+    steps_per_epoch = samples / batch_size / accumulate_grad_batches
+
+    # class_counts = ds_train.df["Lesion"].value_counts()
+    # class_weights = 1 / class_counts / len(class_counts)
+    # weights = ds_train.df["Lesion"].map(lambda x: class_weights[x]).values
+
+    dm = DataModule(
+        ds_train=ds_train,
+        ds_val=ds_val,
+        ds_test=ds_val,
+        batch_size=batch_size, 
+        pin_memory=True,
+        weights= None, #weights,
+        num_workers=16,
     )
 
-    # WARNING: Very simple split approach
-    train_size = int(0.64 * len(ds))
-    val_size = int(0.16 * len(ds))
-    test_size = len(ds) - train_size - val_size
-    ds_train = Subset(ds, list(range(train_size)))
-    ds_val = Subset(ds, list(range(train_size, train_size+val_size)))
-    ds_test = Subset(ds, list(range(train_size+val_size, len(ds))))
-    
-    dm = DataModule(
-        ds_train = ds_train,
-        ds_val = ds_val,
-        ds_test = ds_test,
-        batch_size=1, 
-        # num_workers=0,
-        pin_memory=True,
-    ) 
-
-
     # ------------ Initialize Model ------------
-    model = ResNet(in_ch=1, out_ch=1, spatial_dims=3)
+    loss_kwargs = {}
+    out_ch = len(ds_train.labels)
+    if not binary:
+        out_ch = sum(ds_train.class_labels_num)  
+        loss_kwargs={'class_labels_num': ds_train.class_labels_num}
+
+    model_map = {
+        'ResNet': ResNet if binary else  ResNetRegression,
+        'MST': MST if binary else MSTRegression
+    }
+    MODEL = model_map.get(args.model, None)
+    model_kwargs = dict(in_ch=1, out_ch=out_ch, loss_kwargs=loss_kwargs)
+    if args.model == 'MST':
+        model_kwargs['backbone_type'] = args.backbone
+    model = MODEL(**model_kwargs)
+
+
+    # Load pretrained model 
+    # model = MSTRegression.load_from_checkpoint('runs/DUKE/MST_ordinal_unilateral_2025_10_22_202238_fold4/epoch=18-step=1976.ckpt')
 
 
     # -------------- Training Initialization ---------------
-    to_monitor = "val/AUC_ROC"  
-    min_max = "max"
-    log_every_n_steps = 1
+    to_monitor = "val/AUC_ROC"  # if binary else "val/MAE"
+    min_max = "max" # if binary else "min"
+    log_every_n_steps = max(1, min(50, int(steps_per_epoch)))
+    logger = WandbLogger(project='ODELIA', group=args.institution, name=run_name, log_model=False)
 
     early_stopping = EarlyStopping(
         monitor=to_monitor,
         min_delta=0.0, # minimum change in the monitored quantity to qualify as an improvement
-        patience=5, # number of checks with no improvement
+        patience=25, # number of checks with no improvement
         mode=min_max
     )
     checkpointing = ModelCheckpoint(
@@ -72,27 +107,21 @@ if __name__ == "__main__":
     )
     trainer = Trainer(
         accelerator=accelerator,
-        # devices=[0],
-        precision=16,
-        # gradient_clip_val=0.5,
+        accumulate_grad_batches=accumulate_grad_batches,
+        precision='16-mixed',
         default_root_dir=str(path_run_dir),
-        callbacks=[checkpointing, early_stopping], 
+        callbacks=[checkpointing, early_stopping],
         enable_checkpointing=True,
         check_val_every_n_epoch=1,
-        log_every_n_steps=log_every_n_steps, 
-        auto_lr_find=False,
-        # limit_train_batches=1,
-        # limit_val_batches=0, # 0 = disable validation - Note: Early Stopping no longer available 
-        min_epochs=20,
-        max_epochs=1001,
+        log_every_n_steps=log_every_n_steps,
+        max_epochs=1000,
         num_sanity_val_steps=2,
-        logger=TensorBoardLogger(save_dir=path_run_dir)
+        logger=logger
     )
-    
     # ---------------- Execute Training ----------------
     trainer.fit(model, datamodule=dm)
 
     # ------------- Save path to best model -------------
-    model.save_best_checkpoint(trainer.logger.log_dir, checkpointing.best_model_path)
+    model.save_best_checkpoint(path_run_dir, checkpointing.best_model_path)
 
 
